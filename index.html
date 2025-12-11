@@ -1,51 +1,152 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Hapus Latar - Nelzz</title>
-  <link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8">
+<title>Remove Background - Nelzz Galaxy Edition</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- STYLING -->
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        color: white;
+        text-align: center;
+        background: url('https://i.ibb.co/5GTWkWC/galaxy-bg.jpg') no-repeat center center fixed;
+        background-size: cover;
+        backdrop-filter: blur(4px);
+    }
+
+    .overlay {
+        backdrop-filter: blur(6px) brightness(0.9);
+        width: 100%;
+        height: 100%;
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+    }
+
+    h1 {
+        margin-top: 30px;
+        font-size: 38px;
+        text-shadow: 0 0 20px #8ab4ff;
+    }
+
+    #drop-area {
+        width: 80%;
+        max-width: 500px;
+        margin: 40px auto;
+        padding: 40px;
+        border: 3px dashed rgba(255, 255, 255, 0.8);
+        border-radius: 18px;
+        background: rgba(0,0,0,0.35);
+        transition: 0.25s;
+    }
+
+    #drop-area:hover {
+        background: rgba(255,255,255,0.1);
+        box-shadow: 0 0 20px #7cc3ff;
+    }
+
+    #results img {
+        margin: 15px;
+        width: 220px;
+        border-radius: 10px;
+        box-shadow: 0 0 15px #000;
+    }
+</style>
+
 </head>
 <body>
-  <header>
-    <h1>Hapus Latar Gambar</h1>
-    <p class="sub">Drag & drop folder atau pilih file. Batch processing siap.</p>
-  </header>
+<div class="overlay"></div>
 
-  <main>
-    <section id="uploader">
-      <div id="drop-area">
-        <div class="inside">
-          <button id="select-files">Pilih Folder / File</button>
-          <p>atau drag & drop folder di sini</p>
-          <input id="file-input" type="file" webkitdirectory directory multiple style="display:none" accept="image/*" />
-        </div>
-      </div>
+<h1>Remove Background — Anime Galaxy ✨</h1>
+<p>Drop folder / gambar di bawah ini</p>
 
-      <div id="controls">
-        <label>
-          <input type="checkbox" id="download-zip" checked />
-          Download hasil otomatis (zip)
-        </label>
-        <button id="process-btn">Proses Semua</button>
-      </div>
+<div id="drop-area">
+    <h3>Drop gambar di sini</h3>
+    <p>(atau klik untuk memilih)</p>
+    <input type="file" id="fileElem" webkitdirectory directory multiple style="display:none;">
+</div>
 
-      <div id="progress" class="hidden">
-        <div id="progress-bar"><div id="progress-fill"></div></div>
-        <div id="progress-text"></div>
-      </div>
-    </section>
+<h2>Hasil:</h2>
+<div id="results"></div>
 
-    <section id="file-list-section">
-      <h2>File</h2>
-      <div id="file-list"></div>
-    </section>
-  </main>
+<!-- LOAD ONNX RUNTIME -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 
-  <footer>
-    <small>Backend: kamu perlu menjalankan server (lihat README di bawah)</small>
-  </footer>
+<script>
+const sessionPromise = ort.InferenceSession.create("./models/rmbg_fast.onnx");
 
-  <script src="app.js"></script>
+const dropArea = document.getElementById("drop-area");
+const fileInput = document.getElementById("fileElem");
+
+dropArea.onclick = () => fileInput.click();
+dropArea.addEventListener("dragover", e => e.preventDefault());
+dropArea.addEventListener("drop", e => {
+    e.preventDefault();
+    handleFiles([...e.dataTransfer.files]);
+});
+fileInput.onchange = () => handleFiles([...fileInput.files]);
+
+async function handleFiles(files) {
+    const imgs = files.filter(f => f.type.startsWith("image/"));
+    for (const file of imgs) {
+        const reader = new FileReader();
+        reader.onload = async () => {
+            const img = new Image();
+            img.src = reader.result;
+            img.onload = () => runModel(img, file.name);
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+async function runModel(img, filename) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = 512;
+    canvas.height = 512;
+    ctx.drawImage(img, 0, 0, 512, 512);
+
+    const imgData = ctx.getImageData(0, 0, 512, 512);
+    const input = new Float32Array(imgData.data.length / 4 * 3);
+
+    for (let i = 0, j = 0; i < imgData.data.length; i += 4) {
+        input[j++] = imgData.data[i] / 255;     // R
+        input[j++] = imgData.data[i+1] / 255;   // G
+        input[j++] = imgData.data[i+2] / 255;   // B
+    }
+
+    const tensor = new ort.Tensor("float32", input, [1, 3, 512, 512]);
+    const session = await sessionPromise;
+    const output = await session.run({ "input": tensor });
+
+    const mask = output.output.data;
+    const resultCanvas = document.createElement("canvas");
+    const rctx = resultCanvas.getContext("2d");
+
+    resultCanvas.width = img.width;
+    resultCanvas.height = img.height;
+
+    rctx.drawImage(img, 0, 0);
+    const resImgData = rctx.getImageData(0, 0, img.width, img.height);
+
+    for (let i = 0; i < resImgData.data.length; i += 4) {
+        const p = mask[(i / 4) | 0] * 255;
+        resImgData.data[i + 3] = p;
+    }
+
+    rctx.putImageData(resImgData, 0, 0);
+
+    const outImg = document.createElement("img");
+    outImg.src = resultCanvas.toDataURL("image/png");
+
+    document.getElementById("results").appendChild(outImg);
+}
+</script>
+
 </body>
 </html>
